@@ -126,7 +126,7 @@ async function loadAll() {
     ['soldier', 1.05], ['swat', 1.05], ['zombie1', 1.1], ['zombie2', 1.1],
     ['bldg1', 1], ['bldg2', 1], ['bldg3', 1], ['bldg4', 1], ['bldg5', 1], ['bldg6', 1], ['barricade', 1.1], ['barrier', 1.0],
     ['gate', 1], ['crate', 1], ['crystal', 1], ['crystal2', 1],
-    ['w_shotgun', 1], ['w_mg', 1], ['w_rocket', 1],
+    ['w_shotgun', 1], ['w_mg', 1], ['w_rocket', 1], ['wcrate', 1], ['wcrate_big', 1],
   ];
   const results = await Promise.all(list.map(([k]) => loadGLB(k)));
   results.forEach((gltf, i) => {
@@ -264,23 +264,18 @@ function makeBoss() {
   return b;
 }
 
-// ---------- Blocs (caisses ; cristaux pour les gros) ----------
-const BLOCK = { lbl: new THREE.PlaneGeometry(1.1, 0.8), lblBig: new THREE.PlaneGeometry(1.6, 1.2), crystalMat: null };
+// ---------- Blocs (caisses en bois ; grosse caisse claire pour les gros) ----------
+const BLOCK = { lbl: new THREE.PlaneGeometry(1.1, 0.8), lblBig: new THREE.PlaneGeometry(1.5, 1.1) };
 function makeBlock(hp) {
   const big = hp >= 25;
   const b = new THREE.Group(); b.userData.big = big;
-  const h = big ? 2.7 : 1.5; b.userData.h = h;
-  const m = models[big ? (Math.random() < 0.5 ? 'crystal' : 'crystal2') : 'crate'].wrapper.clone();
+  const h = big ? 2.0 : 1.5; b.userData.h = h;
+  const m = models[big ? 'wcrate_big' : 'wcrate'].wrapper.clone();
   m.scale.setScalar(h);
-  if (big) {
-    if (!BLOCK.crystalMat) { m.traverse(o => { if (o.isMesh && !BLOCK.crystalMat) { BLOCK.crystalMat = o.material.clone(); Object.assign(BLOCK.crystalMat, { emissive: new THREE.Color(0x1a86c8), emissiveIntensity: 0.5, transparent: true, opacity: 0.92, roughness: 0.15, envMapIntensity: 1.5 }); } }); }
-    m.traverse(o => { if (o.isMesh) o.material = BLOCK.crystalMat; });
-    m.rotation.y = rand(0, 6.28);
-  }
   b.add(m);
-  const tex = textTexture(String(hp), '#ffffff', big ? '#0b3a5c' : '#1a1d24');
+  const tex = textTexture(String(hp), '#ffffff', big ? '#5a2e08' : '#2a1606');
   const lbl = new THREE.Mesh(big ? BLOCK.lblBig : BLOCK.lbl, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
-  lbl.position.set(0, big ? h * 0.55 : h * 0.5, big ? h * 0.42 : h * 0.5 + 0.03); b.add(lbl);
+  lbl.position.set(0, h * 0.5, h * 0.5 + 0.03); b.add(lbl);
   return { mesh: b, hp, max: hp, tex, h, big };
 }
 
@@ -293,7 +288,7 @@ const GATE = {
 // ---------- Particules ----------
 const particles = [];
 const partGeo = new THREE.BoxGeometry(0.16, 0.16, 0.16);
-const partMats = { ice: new THREE.MeshStandardMaterial({ color: 0xc6f1ff, emissive: 0x6ad3ff, emissiveIntensity: 0.6, transparent: true, opacity: 0.9 }), blood: new THREE.MeshBasicMaterial({ color: 0x7a1f1f }), green: new THREE.MeshBasicMaterial({ color: 0x4f7a2a }), metal: new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.6, metalness: 0.5 }), spark: new THREE.MeshBasicMaterial({ color: 0xffb347 }), fire: new THREE.MeshBasicMaterial({ color: 0xff5a1f }), gold: new THREE.MeshBasicMaterial({ color: 0xffd25a }) };
+const partMats = { ice: new THREE.MeshStandardMaterial({ color: 0xc6f1ff, emissive: 0x6ad3ff, emissiveIntensity: 0.6, transparent: true, opacity: 0.9 }), blood: new THREE.MeshBasicMaterial({ color: 0x7a1f1f }), green: new THREE.MeshBasicMaterial({ color: 0x4f7a2a }), metal: new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.6, metalness: 0.5 }), wood: new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.9 }), woodlight: new THREE.MeshStandardMaterial({ color: 0xd9b573, roughness: 0.9 }), spark: new THREE.MeshBasicMaterial({ color: 0xffb347 }), fire: new THREE.MeshBasicMaterial({ color: 0xff5a1f }), gold: new THREE.MeshBasicMaterial({ color: 0xffd25a }) };
 function burst(pos, kind, n, power = 1) {
   for (let i = 0; i < n; i++) {
     if (particles.length > 600) break;
@@ -506,13 +501,13 @@ function damageColumn(c, dmg, hitPos) {
   blk.hp -= dmg;
   const cz = c.group.position.z + G.progress;
   if (blk.hp <= 0) {
-    if (blk.big) { Audio.shatter(); G.shake = Math.max(G.shake, 0.5); } else Audio.crate();
-    burst(new THREE.Vector3(c.x, 0.8, cz), blk.big ? 'ice' : 'metal', 22, 1.2);
+    if (blk.big) { Audio.crate(); Audio.explode(); G.shake = Math.max(G.shake, 0.5); } else Audio.crate();
+    burst(new THREE.Vector3(c.x, 0.8, cz), blk.big ? 'woodlight' : 'wood', 22, 1.2);
     c.group.remove(blk.mesh); c.blocks.shift();
     let y = 0; c.blocks.forEach(o => { o.targetY = y; y += o.h; });
     if (!c.blocks.length) c.dead = true;
     hitCombo(); addCoins(Math.ceil(blk.max / 2), new THREE.Vector3(c.x, 1.5, cz));
-  } else { updateText(blk.tex, String(blk.hp)); burst(hitPos, blk.big ? 'ice' : 'spark', 2, 0.4); }
+  } else { updateText(blk.tex, String(blk.hp)); burst(hitPos, blk.big ? 'woodlight' : 'wood', 2, 0.4); }
 }
 function damageZombie(k, dmg) {
   const z = G.zombies[k]; z.userData.hp -= dmg;
@@ -626,7 +621,7 @@ function updateWorld(dt, t) {
     const cz = c.group.position.z + G.progress;
     if (cz > -0.4 && Math.abs(c.x - G.squadX) < squadRadius() + 0.9) {
       const total = c.blocks.reduce((s, o) => s + o.hp, 0);
-      burst(new THREE.Vector3(c.x, 0.8, 0), c.blocks[0] && c.blocks[0].big ? 'ice' : 'metal', 25, 1.3); Audio.shatter();
+      burst(new THREE.Vector3(c.x, 0.8, 0), c.blocks[0] && c.blocks[0].big ? 'woodlight' : 'wood', 25, 1.3); Audio.crate();
       c.blocks.forEach(o => c.group.remove(o.mesh)); c.blocks = []; c.dead = true;
       loseSoldiers(Math.min(total, G.count));
     } else if (cz > 3) { c.dead = true; world.remove(c.group); }
