@@ -4,7 +4,8 @@
 // ---------- Constantes ----------
 const ROAD_HALF = 4.2;          // demi-largeur de la route
 const LANES = [-3.1, -1.05, 1.05, 3.1];
-const WORLD_SPEED = 8;
+const WORLD_SPEED = 8;          // vitesse de défilement au niveau 1
+const worldSpeed = () => Math.min(14, WORLD_SPEED + (G.level - 1) * 0.5);   // +0,5 par niveau, plafond 14
 const MAX_SOLDIERS = 60;
 const SHADOW_SOLDIERS = 18;     // seuls les premiers projettent une ombre
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -606,7 +607,7 @@ function updateWorld(dt, t) {
   // arrivée sur le boss -> la route s'arrête
   const bossZ = G.boss ? G.boss.position.z + G.progress : -(G.length - G.progress);
   if (!G.hordeActive && bossZ > -30) { G.hordeActive = true; ui.boss.style.display = 'block'; ui.bossfill.style.width = '100%'; Audio.roar(); G.shake = 0.6; showWave(); }
-  WORLD.speed = G.running && !G.hordeActive ? WORLD_SPEED : 0;
+  WORLD.speed = G.running && !G.hordeActive ? worldSpeed() : 0;
   G.progress += WORLD.speed * dt;
   world.position.z = G.progress;
   if (roadTex) roadTex.offset.y = (G.progress / 420) * 40;
