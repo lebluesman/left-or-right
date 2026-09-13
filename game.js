@@ -126,6 +126,7 @@ async function loadAll() {
     ['soldier', 1.05], ['swat', 1.05], ['zombie1', 1.1], ['zombie2', 1.1],
     ['bldg1', 1], ['bldg2', 1], ['bldg3', 1], ['bldg4', 1], ['bldg5', 1], ['bldg6', 1], ['barricade', 1.1], ['barrier', 1.0],
     ['gate', 1], ['crate', 1], ['crystal', 1], ['crystal2', 1],
+    ['w_shotgun', 1], ['w_mg', 1], ['w_rocket', 1],
   ];
   const results = await Promise.all(list.map(([k]) => loadGLB(k)));
   results.forEach((gltf, i) => {
@@ -413,9 +414,19 @@ function makeGate(z, left, right) {
     const panel = new THREE.Mesh(GATE.geoPanel, new THREE.MeshStandardMaterial({ color: col, transparent: true, opacity: 0.38, emissive: col, emissiveIntensity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
     panel.position.set(cx, 1.5, -0.45); group.add(panel);
     const frame = models.gate.wrapper.clone(); frame.scale.setScalar(3.25); frame.position.set(cx, 0, 0); group.add(frame);
-    const lbl = new THREE.Mesh(GATE.lbl, new THREE.MeshBasicMaterial({ map: textTexture(spec.label, '#ffffff', spec.weapon ? '#0d3a6b' : good ? '#0d5a33' : '#6b0e18', spec.label.length > 2 ? 110 : 150), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
-    lbl.position.set(cx, 1.75, 0.45); group.add(lbl);
-    halves.push({ spec, panel, side });
+    if (spec.weapon) {
+      // l'arme en 3D, à plat, qui flotte et tourne lentement au-dessus de la barrière
+      const w = models['w_' + spec.weapon].wrapper.clone();
+      const box = new THREE.Box3().setFromObject(w), size = box.getSize(new THREE.Vector3());
+      w.scale.multiplyScalar(3.3 / Math.max(size.x, size.z));
+      const pivot = new THREE.Group(); pivot.add(w); w.position.y = -0.5;   // centre l'arme sur son pivot
+      pivot.position.set(cx, 2.2, 0.5); pivot.rotation.z = 0.35; group.add(pivot);
+      halves.push({ spec, panel, side, spin: pivot });
+    } else {
+      const lbl = new THREE.Mesh(GATE.lbl, new THREE.MeshBasicMaterial({ map: textTexture(spec.label, '#ffffff', good ? '#0d5a33' : '#6b0e18', spec.label.length > 2 ? 110 : 150), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+      lbl.position.set(cx, 1.75, 0.45); group.add(lbl);
+      halves.push({ spec, panel, side });
+    }
   });
   world.add(group);
   G.gates.push({ group, halves, used: false });
@@ -619,6 +630,7 @@ function updateWorld(dt, t) {
   for (const g of G.gates) {
     if (g.used) continue;
     const gz = g.group.position.z + G.progress;
+    if (gz > -80) for (const h of g.halves) if (h.spin) { h.spin.rotation.y = t * 1.4; h.spin.position.y = 2.2 + Math.sin(t * 2.5 + h.side) * 0.15; }
     if (gz > -0.3) {
       g.used = true;
       const h = g.halves[G.squadX < 0 ? 0 : 1];
