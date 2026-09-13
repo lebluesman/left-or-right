@@ -257,6 +257,9 @@ function makeSoldier(i) {
   return g;
 }
 const RAGE_TIME = 15;
+// dégâts par seconde théoriques d'une escouade ; les PV des blocs, zombies et boss en découlent
+function dpsEstimate(count, fireMult, dmgBonus, weapon, rage) { return count * (weapon.n / weapon.interval) * fireMult * (weapon.dmg + dmgBonus) * (rage ? 2 : 1); }
+function dpsNow() { return dpsEstimate(G.count, G.fireMult, G.dmgBonus, G.weapon, G.rage > 0); }
 function startRage() {
   G.rage = RAGE_TIME;
   for (const s of G.soldiers) { s.userData.green.visible = true; s.userData.swat.visible = false; }
@@ -270,22 +273,20 @@ function endRage() {
 }
 function makeZombie(horde) {
   const z = makeCharacter(Math.random() < 0.5 ? 'zombie1' : 'zombie2', ['Run', 'Run_Arms', 'Walk'], false);
-  Object.assign(z.userData, { speed: rand(2.2, 3.4), sway: rand(0.5, 1.5), phase: rand(0, 6.28), horde, hp: 1 + Math.floor(G.level * 0.8), active: false });
+  Object.assign(z.userData, { speed: rand(2.2, 3.4), sway: rand(0.5, 1.5), phase: rand(0, 6.28), horde, hp: 1, active: false });
   return z;
 }
 function makeBoss() {
   const b = makeCharacter('zombie2', ['Walk'], true);
   b.scale.setScalar(3.2);
   b.userData.mixer.timeScale = 0.6;
-  const hp = 220 + G.level * 110;
-  Object.assign(b.userData, { hp, maxHp: hp, speed: 0.55, waveT: 2.5, hitT: 0, hitCd: 0 });
+  Object.assign(b.userData, { hp: 1, maxHp: 1, speed: 0.55, waveT: 2.5, hitT: 0, hitCd: 0 });
   return b;
 }
 
 // ---------- Blocs (caisses en bois ; grosse caisse claire pour les gros) ----------
 const BLOCK = { lbl: new THREE.PlaneGeometry(1.1, 0.8), lblBig: new THREE.PlaneGeometry(1.5, 1.1) };
-function makeBlock(hp) {
-  const big = hp >= 25;
+function makeBlock(hp, big) {
   const b = new THREE.Group(); b.userData.big = big;
   const h = big ? 2.0 : 1.5; b.userData.h = h;
   const m = models[big ? 'wcrate_big' : 'wcrate'].wrapper.clone();
@@ -356,7 +357,7 @@ const WORLD = { speed: 0 };
 const G = window.__G = {
   level: 1, running: false, progress: 0, length: 0, timeScale: 1, shake: 0,
   soldiers: [], count: 0, squadX: 0, targetX: 0, fireMult: 1, dmgBonus: 0, weaponKey: 'rifle', weapon: WEAPONS.rifle,
-  columns: [], gates: [], zombies: [], boss: null, hordeActive: false, hordeDone: false,
+  columns: [], gates: [], zombies: [], boss: null, hordeActive: false, hordeDone: false, endDps: 20, endModel: { count: 6 },
   combo: 0, comboT: 0, coinsLevel: 0, kills: 0, rage: 0,
 };
 const squad = new THREE.Group(); scene.add(squad);
@@ -382,8 +383,9 @@ function setCount(n, fx = true) {
   G.count = n; updateText(countTex, String(n), '#ffffff', '#0b3a5c', 120);
   refreshHud();
 }
-function loseSoldiers(n) {
+function loseSoldiers(n, why) {
   if (n <= 0 || !G.running) return;
+  G.lastLoss = (why || '?') + ':' + n;
   Audio.hurt(); ui.flash.style.opacity = 0.35; setTimeout(() => ui.flash.style.opacity = 0, 120);
   G.shake = Math.max(G.shake, 0.4); endCombo();
   setCount(G.count - n);
@@ -412,13 +414,13 @@ function clearLevel() {
   for (const p of popups) scene.remove(p);
   G.columns = []; G.gates = []; G.zombies = []; G.boss = null; bullets.length = 0; particles.length = 0; popups.length = 0;
 }
-function makeColumn(x, z, hps) {
+function makeColumn(x, z, hps, unit) {
   const group = new THREE.Group(); group.position.set(x, 0, z);
   const blocks = [];
   let y = 0;
-  hps.forEach(hp => { const b = makeBlock(hp); b.mesh.position.y = y; b.targetY = y; y += b.h; group.add(b.mesh); blocks.push(b); });
+  hps.forEach(o => { const b = makeBlock(o.hp, o.big); b.mesh.position.y = y; b.targetY = y; y += b.h; group.add(b.mesh); blocks.push(b); });
   world.add(group);
-  G.columns.push({ group, blocks, x, dead: false });
+  G.columns.push({ group, blocks, x, dead: false, unit: unit || 1 });
 }
 function makeGate(z, left, right) {
   const group = new THREE.Group(); group.position.set(0, 0, z);
@@ -451,59 +453,102 @@ function makeGate(z, left, right) {
 function gateSpec(kind) {
   const L = G.level;
   switch (kind) {
-    case 'add': { const v = irand(3, 5 + L); return { good: true, label: '+' + v, apply: () => setCount(G.count + v) }; }
-    case 'mul': return { good: true, label: 'x2', apply: () => setCount(G.count * 2) };
-    case 'fire': return { good: true, label: 'TIR+', apply: () => { G.fireMult = Math.min(4, G.fireMult + 0.4); refreshHud(); } };
-    case 'dmg': return { good: true, label: 'DMG+', apply: () => { G.dmgBonus += 1; refreshHud(); } };
-    case 'rage': return { good: true, rage: true, label: 'RAGE', apply: startRage };
-    case 'sub': { const v = irand(2, 3 + L); return { good: false, label: '-' + v, apply: () => loseSoldiers(v) }; }
-    case 'div': return { good: false, label: '÷2', apply: () => loseSoldiers(Math.ceil(G.count / 2)) };
-    case 'shotgun': case 'mg': case 'rocket': return { good: true, weapon: kind, label: WEAPONS[kind].name.slice(0, 5), apply: () => setWeapon(kind) };
+    case 'add': { const v = irand(3, 5 + L); return { kind, v, good: true, label: '+' + v, apply: () => setCount(G.count + v) }; }
+    case 'mul': return { kind, good: true, label: 'x2', apply: () => setCount(G.count * 2) };
+    case 'fire': return { kind, good: true, label: 'TIR+', apply: () => { G.fireMult = Math.min(4, G.fireMult + 0.4); refreshHud(); } };
+    case 'dmg': return { kind, good: true, label: 'DMG+', apply: () => { G.dmgBonus += 1; refreshHud(); } };
+    case 'rage': return { kind, good: true, rage: true, label: 'RAGE', apply: startRage };
+    case 'sub': { const pct = irand(2, 4) * 10; return { kind, pct, good: false, label: '-' + pct + '%', apply: () => loseSoldiers(Math.max(2, Math.ceil(G.count * pct / 100)), 'porte -' + pct + '%') }; }
+    case 'div': return { kind, good: false, label: '÷2', apply: () => loseSoldiers(Math.ceil(G.count / 2), 'porte ÷2') };
+    case 'shotgun': case 'mg': case 'rocket': return { kind, good: true, weapon: kind, label: WEAPONS[kind].name.slice(0, 5), apply: () => setWeapon(kind) };
   }
 }
 function setWeapon(k) { G.weaponKey = k; G.weapon = WEAPONS[k]; refreshHud(); popup(new THREE.Vector3(G.squadX, 2.6, 0), WEAPONS[k].name, '#9fd8ff'); }
-function spawnPack(z, n) {
+function spawnPack(z, n, hp) {
   for (let i = 0; i < n; i++) {
-    const zb = makeZombie(false);
-    zb.position.set(rand(-ROAD_HALF + 0.5, ROAD_HALF - 0.5), 0, z - rand(0, 3));
+    const zb = makeZombie(false); zb.userData.hp = hp;
+    zb.position.set(rand(-ROAD_HALF + 0.5, ROAD_HALF - 0.5), 0, z - rand(0, 8));
     world.add(zb); G.zombies.push(zb);
   }
 }
+// Taux de bons choix nécessaire pour finir le niveau : 50 % au niveau 1, 100 % au niveau 50
+function requiredRatio(L) { return 0.5 + 0.5 * Math.min(1, (L - 1) / 49); }
+// applique l'effet d'une porte au « joueur attendu » du modèle
+function modelApply(spec, m) {
+  const k = spec.kind;
+  if (k === 'add') m.count = Math.min(MAX_SOLDIERS, m.count + spec.v);
+  else if (k === 'mul') m.count = Math.min(MAX_SOLDIERS, m.count * 2);
+  else if (k === 'sub') m.count = Math.max(1, m.count - Math.max(2, Math.ceil(m.count * spec.pct / 100)));
+  else if (k === 'div') m.count = Math.max(1, Math.ceil(m.count / 2));
+  else if (k === 'fire') m.fire = Math.min(4, m.fire + 0.4);
+  else if (k === 'dmg') m.dmg += 1;
+  else if (spec.weapon) m.weapon = WEAPONS[spec.weapon];
+}
+const modelDps = m => dpsEstimate(m.count, m.fire, m.dmg, m.weapon, false);
+const betterOf = item => item.a.good && !item.b.good ? item.a : (item.b.good && !item.a.good ? item.b : item.a);
+
 function buildLevel() {
   clearLevel();
-  const L = G.level;
+  const L = G.level, r = requiredRatio(L);
   G.length = 230 + L * 40;
   G.progress = 0; G.hordeActive = false; G.hordeDone = false; G.combo = 0; G.coinsLevel = 0; G.kills = 0; G.timeScale = 1; G.shake = 0;
+  const window_ = WEAPONS.rifle.range / worldSpeed() * 0.6;    // secondes de tir utiles sur un bloc avant qu'il n'arrive (l'escouade est large, ~60 % des tirs touchent la colonne visée)
+  // 1) plan du niveau : portes et grappes, sans PV encore
+  const plan = [];
   let d = 32, sinceGate = 0, gatesMade = 0;
   const goods = ['add', 'add', 'mul', 'fire', 'dmg', 'add', 'rage', 'rage'], bads = ['sub', 'sub', 'div'], weapons = ['shotgun', 'mg', 'rocket'];
-  const packs = 1 + Math.floor(L / 2);
-  const packAt = []; for (let i = 0; i < packs; i++) packAt.push(rand(60, G.length - 70));
   while (d < G.length - 60) {
-    const r = Math.random();
-    if (r < 0.45 || sinceGate === 0) {
-      const lanes = LANES.slice().sort(() => Math.random() - 0.5).slice(0, irand(1, Math.min(4, 2 + Math.floor(L / 2))));
-      for (const x of lanes) {
-        const n = irand(1, 3), hps = [];
-        for (let i = 0; i < n; i++) hps.push(Math.round(rand(2, 9) * (1 + 0.45 * (L - 1)) * (i === 0 ? 1 : 0.6)));
-        if (Math.random() < 0.18) hps[0] = Math.round(rand(30, 60) * (1 + 0.5 * (L - 1)));
-        makeColumn(x, -d, hps);
-      }
+    if (sinceGate === 0 || (sinceGate < 2 && Math.random() < 0.3)) {   // alternance porte / blocs, parfois deux grappes de suite
+      const lanes = LANES.slice().sort(() => Math.random() - 0.5).slice(0, irand(1, Math.min(3, 2 + Math.floor(L / 2))));   // toujours une voie libre
+      plan.push({ type: 'blocks', d, lanes });
       d += rand(16, 22); sinceGate++;
     } else {
-      // porte : bonus / arme contre malus (ou deux bonus) ; parfois un bloc « à risque » devant le bon côté
       const a = (gatesMade === 1 || Math.random() < 0.25) ? gateSpec(weapons[irand(0, 2)]) : gateSpec(goods[irand(0, goods.length - 1)]);   // la 2e porte offre toujours une arme
       const b = Math.random() < 0.7 ? gateSpec(bads[irand(0, bads.length - 1)]) : gateSpec(goods[irand(0, goods.length - 1)]);
       const goodLeft = Math.random() < 0.5;
-      if (goodLeft) makeGate(-d, a, b); else makeGate(-d, b, a);
-      if (Math.random() < 0.35 && !b.good) {
-        const x = goodLeft ? LANES[irand(0, 1)] : LANES[irand(2, 3)];
-        makeColumn(x, -d + 7, [Math.round(rand(12, 24) * (1 + 0.4 * (L - 1)))]);
-      }
+      plan.push({ type: 'gate', d, a, b, goodLeft });
+      if (Math.random() < 0.35 && !b.good) plan.push({ type: 'risk', d: d - 7, lane: goodLeft ? LANES[irand(0, 1)] : LANES[irand(2, 3)] });
       d += rand(18, 24); sinceGate = 0; gatesMade++;
     }
   }
-  for (const z of packAt) spawnPack(-z, 4 + L * 2);
-  // boss + première garde
+  plan.sort((p, q) => p.d - q.d);
+  // 2) joueur attendu : il réussit r(L) des portes, les ratés sont répartis régulièrement
+  const gates = plan.filter(p => p.type === 'gate');
+  const nFail = Math.round(gates.length * (1 - r));
+  const failIdx = new Set(); for (let i = 0; i < nFail; i++) failIdx.add(Math.floor((i + 0.5) * gates.length / nFail));
+  // la boutique compte à moitié : elle donne de la marge sans annuler la difficulté
+  const m = { count: 6 + Math.floor(L / 2) + Math.round(SAVE.up.soldiers * 0.5), fire: 1 + SAVE.up.fire * 0.05, dmg: Math.round(SAVE.up.dmg * 0.5), weapon: WEAPONS.rifle };
+  let gi = 0;
+  G.plan = plan;
+  for (const item of plan) {
+    const dps = modelDps(m);
+    item.dps = dps; item.count = m.count;
+    if (item.type === 'blocks') {
+      for (const x of item.lanes) {
+        const n = irand(1, 3), hps = [];
+        for (let i = 0; i < n; i++) hps.push({ hp: Math.max(1, Math.round(dps * window_ * rand(0.12, 0.3) * (i === 0 ? 1 : 0.5))), big: false });
+        if (Math.random() < 0.18) hps[0] = { hp: Math.max(2, Math.round(dps * window_ * rand(0.9, 1.5))), big: true };
+        makeColumn(x, -item.d, hps, dps * window_ * 0.07);
+      }
+    } else if (item.type === 'risk') {
+      makeColumn(item.lane, -item.d, [{ hp: Math.max(1, Math.round(dps * window_ * rand(0.35, 0.6))), big: false }], dps * window_ * 0.07);
+    } else {
+      if (item.goodLeft) makeGate(-item.d, item.a, item.b); else makeGate(-item.d, item.b, item.a);
+      const better = betterOf(item), worse = better === item.a ? item.b : item.a;
+      modelApply(failIdx.has(gi) ? worse : better, m);
+      gi++;
+    }
+  }
+  G.endModel = { ...m }; G.endDps = modelDps(m);
+  // 3) groupes de zombies en route, PV relatifs à la puissance attendue à leur hauteur
+  const packs = 1 + Math.floor(L / 2);
+  for (let i = 0; i < packs; i++) {
+    const z = rand(60, G.length - 70);
+    let dpsAt = modelDps({ count: 6 + Math.floor(L / 2), fire: 1, dmg: 0, weapon: WEAPONS.rifle });
+    for (const item of plan) if (item.d < z) dpsAt = item.dps;
+    spawnPack(-z, Math.min(18, 4 + Math.floor(L * 0.6)), Math.max(1, Math.round(dpsAt * 0.02)));
+  }
+  // 4) boss + garde : PV fixés à l'arrivée d'après G.endDps (voir updateWorld)
   G.boss = makeBoss(); G.boss.position.set(0, 0, -G.length); world.add(G.boss);
   for (let i = 0; i < 10 + L * 3; i++) {
     const zb = makeZombie(true);
@@ -525,7 +570,7 @@ function damageColumn(c, dmg, hitPos) {
     c.group.remove(blk.mesh); c.blocks.shift();
     let y = 0; c.blocks.forEach(o => { o.targetY = y; y += o.h; });
     if (!c.blocks.length) c.dead = true;
-    hitCombo(); addCoins(Math.ceil(blk.max / 2), new THREE.Vector3(c.x, 1.5, cz));
+    hitCombo(); addCoins(Math.ceil(blk.max / c.unit), new THREE.Vector3(c.x, 1.5, cz));
   } else { updateText(blk.tex, String(blk.hp)); burst(hitPos, blk.big ? 'woodlight' : 'wood', 2, 0.4); }
 }
 function damageZombie(k, dmg) {
@@ -545,7 +590,7 @@ function damageBoss(dmg, hitPos) {
   if (b.userData.hp <= 0) {
     Audio.explode(); Audio.roar(); G.shake = 1.2; G.timeScale = 0.25; setTimeout(() => G.timeScale = 1, 700);
     burst(hitPos, 'green', 40, 1.6); burst(hitPos, 'gold', 20, 1.2);
-    addCoins(80, hitPos.clone().setY(3));
+    addCoins(80 + G.level * 5, hitPos.clone().setY(3));
     // la horde s'effondre avec son chef
     G.zombies.slice().forEach((z, i) => setTimeout(() => { const k = G.zombies.indexOf(z); if (k >= 0) { z.userData.hp = 0; damageZombie(k, 0); } }, i * 40));
     world.remove(b); G.boss = null; G.hordeDone = true; setTimeout(win, 1300);
@@ -563,12 +608,12 @@ function explode(pos, dmg, area) {
     const z = G.zombies[k];
     if (Math.abs(z.position.x - pos.x) < area + 0.4 && Math.abs(z.position.z + G.progress - pos.z) < area + 0.5) damageZombie(k, dmg);
   }
-  if (G.boss && Math.abs(G.boss.position.x - pos.x) < area + 1.2 && Math.abs(G.boss.position.z + G.progress - pos.z) < area + 1.2) damageBoss(dmg, pos);
+  if (G.boss && G.hordeActive && Math.abs(G.boss.position.x - pos.x) < area + 1.2 && Math.abs(G.boss.position.z + G.progress - pos.z) < area + 1.2) damageBoss(dmg, pos);
 }
 
 // ---------- Boucle ----------
 function updateSquad(dt, t) {
-  const maxX = ROAD_HALF - 0.45 - Math.min(2.6, squadRadius());
+  const maxX = ROAD_HALF - 1.0;                    // les voies extérieures restent atteignables, même avec une grosse escouade
   G.targetX = clamp(G.targetX, -maxX, maxX);
   G.squadX += (G.targetX - G.squadX) * Math.min(1, dt * 9);
   squad.position.x = G.squadX;
@@ -602,12 +647,12 @@ function updateBullets(dt) {
     }
     if (!hit) for (let k = G.zombies.length - 1; k >= 0; k--) {
       const z = G.zombies[k];
-      if (Math.abs(b.position.x - z.position.x) < 0.42 && Math.abs(b.position.z - (z.position.z + G.progress)) < 0.5) {
+      if (Math.abs(b.position.x - z.position.x) < 0.65 && Math.abs(b.position.z - (z.position.z + G.progress)) < 0.6) {
         if (u.area) explode(b.position.clone(), u.dmg, u.area); else damageZombie(k, u.dmg);
         hit = true; break;
       }
     }
-    if (!hit && G.boss && G.boss.userData.hp > 0) {
+    if (!hit && G.boss && G.hordeActive && G.boss.userData.hp > 0) {
       const bz = G.boss.position.z + G.progress;
       if (Math.abs(b.position.x - G.boss.position.x) < 1.3 && Math.abs(b.position.z - bz) < 1.2) {
         if (u.area) explode(b.position.clone(), u.dmg, u.area); else damageBoss(u.dmg, new THREE.Vector3(b.position.x, 1.5, bz + 1));
@@ -625,7 +670,11 @@ function updateWorld(dt, t) {
   if (G.rage > 0) { G.rage -= dt; ui.rage.textContent = '⚡ RAGE x2 · ' + Math.ceil(G.rage) + ' s'; ui.rage.style.opacity = 1; if (G.rage <= 0) endRage(); }
   // arrivée sur le boss -> la route s'arrête
   const bossZ = G.boss ? G.boss.position.z + G.progress : -(G.length - G.progress);
-  if (!G.hordeActive && bossZ > -30) { G.hordeActive = true; ui.boss.style.display = 'block'; ui.bossfill.style.width = '100%'; Audio.roar(); G.shake = 0.6; showWave(); }
+  if (!G.hordeActive && bossZ > -30) {
+    G.hordeActive = true; ui.boss.style.display = 'block'; ui.bossfill.style.width = '100%'; Audio.roar(); G.shake = 0.6; showWave();
+    if (G.boss) { const hp = Math.round(G.endDps * 12); G.boss.userData.hp = G.boss.userData.maxHp = hp; }   // 12 s de tir pour le joueur attendu
+    for (const z of G.zombies) if (z.userData.horde) z.userData.hp = Math.max(1, Math.round(G.endDps * 0.02));
+  }
   WORLD.speed = G.running && !G.hordeActive ? worldSpeed() : 0;
   G.progress += WORLD.speed * dt;
   world.position.z = G.progress;
@@ -639,11 +688,11 @@ function updateWorld(dt, t) {
     if (c.dead) continue;
     for (const o of c.blocks) o.mesh.position.y += (o.targetY - o.mesh.position.y) * Math.min(1, dt * 10);
     const cz = c.group.position.z + G.progress;
-    if (cz > -0.4 && Math.abs(c.x - G.squadX) < squadRadius() + 0.9) {
-      const total = c.blocks.reduce((s, o) => s + o.hp, 0);
+    if (cz > -0.4 && Math.abs(c.x - G.squadX) < 1.0 + 0.15 * squadRadius()) {   // seule la partie centrale de l'escouade encaisse, sinon une grosse escouade ne peut plus rien éviter
+      const total = Math.ceil(c.blocks.reduce((s, o) => s + o.hp, 0) / c.unit);   // un bloc « normal » frais coûte ~4-6 soldats, un gros ~25
       burst(new THREE.Vector3(c.x, 0.8, 0), c.blocks[0] && c.blocks[0].big ? 'woodlight' : 'wood', 25, 1.3); Audio.crate();
       c.blocks.forEach(o => c.group.remove(o.mesh)); c.blocks = []; c.dead = true;
-      loseSoldiers(Math.min(total, G.count));
+      loseSoldiers(Math.min(total, Math.max(1, Math.ceil(G.count * 0.6))), 'bloc x' + c.x + ' pv' + c.blocks.map(o => o.hp).join('+'));   // un choc ne rase jamais plus de 60 % de l'escouade
     } else if (cz > 3) { c.dead = true; world.remove(c.group); }
   }
   for (const g of G.gates) {
@@ -663,11 +712,12 @@ function updateWorld(dt, t) {
     const z = G.zombies[k], u = z.userData;
     const wz = z.position.z + G.progress;
     if (wz > -60) u.mixer.update(dt);
-    if (!u.active && (u.horde ? G.hordeActive : wz > -45)) u.active = true;
+    if (!u.active && (u.horde ? G.hordeActive : wz > -55)) u.active = true;
     if (u.active && G.running) {
       z.position.z += u.speed * dt;
-      z.position.x = clamp(z.position.x + Math.sin(t * u.sway + u.phase) * dt * 0.8 + (G.squadX - z.position.x) * dt * 0.15, -ROAD_HALF + 0.3, ROAD_HALF - 0.3);
-      if (wz > -0.6) { burst(new THREE.Vector3(G.squadX, 0.6, 0), 'blood', 6, 0.7); world.remove(z); G.zombies.splice(k, 1); loseSoldiers(1); }
+      z.position.x = clamp(z.position.x + Math.sin(t * u.sway + u.phase) * dt * 0.8 + (G.squadX - z.position.x) * dt * 0.6, -ROAD_HALF + 0.3, ROAD_HALF - 0.3);   // ils foncent sur l'escouade, donc dans la ligne de tir
+      if (wz > -0.6 && Math.abs(z.position.x - G.squadX) < squadRadius() + 0.6) { burst(new THREE.Vector3(z.position.x, 0.6, 0), 'blood', 6, 0.7); world.remove(z); G.zombies.splice(k, 1); loseSoldiers(1, 'zombie'); }
+      else if (wz > 4) { world.remove(z); G.zombies.splice(k, 1); }   // passé à côté de l'escouade
     }
   }
   // boss : avance lentement, envoie des vagues, frappe au contact
@@ -680,22 +730,30 @@ function updateWorld(dt, t) {
     b.position.x += (G.squadX * 0.6 - b.position.x) * dt * 0.3;
     u.waveT -= dt;
     if (u.waveT <= 0) {
-      u.waveT = 4.5 - Math.min(2, G.level * 0.2);
-      for (let i = 0; i < 4 + G.level * 2; i++) { const zb = makeZombie(true); zb.userData.active = true; zb.position.set(clamp(b.position.x + rand(-3, 3), -ROAD_HALF + 0.4, ROAD_HALF - 0.4), 0, b.position.z - rand(0.5, 3)); world.add(zb); G.zombies.push(zb); }
+      u.waveT = Math.max(3, 5 - G.level * 0.05);
+      const n = clamp(Math.round(6 + G.level * 0.6), 6, 30), zhp = Math.max(1, Math.round(G.endDps * 0.02));
+      for (let i = 0; i < n; i++) { const zb = makeZombie(true); zb.userData.active = true; zb.userData.hp = zhp; zb.position.set(clamp(b.position.x + rand(-3, 3), -ROAD_HALF + 0.4, ROAD_HALF - 0.4), 0, b.position.z - rand(0.5, 3)); world.add(zb); G.zombies.push(zb); }
       Audio.roar(); showWave();
     }
-    if (b.position.z + G.progress > -2.5) { u.hitCd -= dt; if (u.hitCd <= 0) { u.hitCd = 0.8; burst(new THREE.Vector3(G.squadX, 0.8, 0), 'blood', 10, 1); loseSoldiers(3); } }
+    if (b.position.z + G.progress > -2.5) { u.hitCd -= dt; if (u.hitCd <= 0) { u.hitCd = 0.8; burst(new THREE.Vector3(G.squadX, 0.8, 0), 'blood', 10, 1); loseSoldiers(Math.max(3, Math.ceil(G.count * 0.12)), 'boss'); } }
   }
 }
 
-let last = performance.now();
-function loop(now) {
-  requestAnimationFrame(loop);
-  const raw = Math.min(0.05, (now - last) / 1000); last = now; const dt = raw * G.timeScale; const t = now / 1000;
+const BOT = +(new URLSearchParams(location.search).get('bot') || 0);   // ?bot=N : N pas de simulation par image, sans rendu (tests d'équilibrage)
+let last = performance.now(), simT = 0;
+function step(raw, t) {
+  const dt = raw * G.timeScale;
   if (G.running) { updateWorld(dt, t); updateBullets(dt); }
   updateSquad(dt, t); updateParticles(dt); updatePopups(raw);
+}
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (BOT) { for (let i = 0; i < BOT; i++) { simT += 1 / 60; step(1 / 60, simT); } return; }
+  const raw = Math.min(0.05, (now - last) / 1000); last = now;
+  step(raw, now / 1000);
   renderer.render(scene, camera);
 }
+window.__api = { startLevel: () => startLevel(), setLevel: l => { G.level = l; }, requiredRatio, simTime: () => simT };
 
 // ---------- Boutique / écrans ----------
 function renderShop(prefix) {
