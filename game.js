@@ -413,7 +413,7 @@ function makeGate(z, left, right) {
     const frame = models.gate.wrapper.clone(); frame.scale.setScalar(3.25); frame.position.set(cx, 0, 0); group.add(frame);
     if (spec.weapon) {
       // l'arme en 3D, à plat, qui flotte et tourne lentement au-dessus de la barrière
-      const w = models['w_' + spec.weapon].wrapper.clone();
+      const w = THREE.SkeletonUtils.clone(models['w_' + spec.weapon].wrapper);   // la pompe est riggée : un clone simple perd ses os et s'affiche à l'origine
       const box = new THREE.Box3().setFromObject(w), size = box.getSize(new THREE.Vector3());
       w.scale.multiplyScalar(2.6 / Math.max(size.x, size.z));
       if (size.z > size.x) w.rotation.y = Math.PI / 2;                      // canon le long de l'axe X
