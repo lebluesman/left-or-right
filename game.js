@@ -246,10 +246,27 @@ function makeCharacter(key, clipNames, shadow) {
   return g;
 }
 function makeSoldier(i) {
-  const s = makeCharacter(Math.random() < 0.75 ? 'soldier' : 'swat', ['Run_Gun', 'Run_Shoot', 'Run'], i < SHADOW_SOLDIERS);
-  s.rotation.y = Math.PI;              // dos à la caméra
-  s.userData.fireT = rand(0, 0.35);
-  return s;
+  // deux corps par soldat : SWAT noir en temps normal, soldat vert pendant la RAGE (tir x2)
+  const g = new THREE.Group();
+  const swat = makeCharacter('swat', ['Run_Shoot', 'Run'], i < SHADOW_SOLDIERS);
+  const green = makeCharacter('soldier', ['Run_Gun', 'Run'], i < SHADOW_SOLDIERS);
+  green.visible = G.rage > 0; swat.visible = !green.visible;
+  g.add(swat); g.add(green);
+  g.rotation.y = Math.PI;              // dos à la caméra
+  g.userData = { swat, green, fireT: rand(0, 0.35) };
+  return g;
+}
+const RAGE_TIME = 15;
+function startRage() {
+  G.rage = RAGE_TIME;
+  for (const s of G.soldiers) { s.userData.green.visible = true; s.userData.swat.visible = false; }
+  popup(new THREE.Vector3(G.squadX, 2.8, 0), 'RAGE x2 !', '#b6ff4a'); Audio.roar(); G.shake = Math.max(G.shake, 0.5);
+  burst(new THREE.Vector3(G.squadX, 0.8, 0), 'lime', 24, 1);
+}
+function endRage() {
+  G.rage = 0;
+  for (const s of G.soldiers) { s.userData.green.visible = false; s.userData.swat.visible = true; }
+  ui.rage.style.opacity = 0;
 }
 function makeZombie(horde) {
   const z = makeCharacter(Math.random() < 0.5 ? 'zombie1' : 'zombie2', ['Run', 'Run_Arms', 'Walk'], false);
@@ -289,7 +306,7 @@ const GATE = {
 // ---------- Particules ----------
 const particles = [];
 const partGeo = new THREE.BoxGeometry(0.16, 0.16, 0.16);
-const partMats = { ice: new THREE.MeshStandardMaterial({ color: 0xc6f1ff, emissive: 0x6ad3ff, emissiveIntensity: 0.6, transparent: true, opacity: 0.9 }), blood: new THREE.MeshBasicMaterial({ color: 0x7a1f1f }), green: new THREE.MeshBasicMaterial({ color: 0x4f7a2a }), metal: new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.6, metalness: 0.5 }), wood: new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.9 }), woodlight: new THREE.MeshStandardMaterial({ color: 0xd9b573, roughness: 0.9 }), spark: new THREE.MeshBasicMaterial({ color: 0xffb347 }), fire: new THREE.MeshBasicMaterial({ color: 0xff5a1f }), gold: new THREE.MeshBasicMaterial({ color: 0xffd25a }) };
+const partMats = { ice: new THREE.MeshStandardMaterial({ color: 0xc6f1ff, emissive: 0x6ad3ff, emissiveIntensity: 0.6, transparent: true, opacity: 0.9 }), blood: new THREE.MeshBasicMaterial({ color: 0x7a1f1f }), green: new THREE.MeshBasicMaterial({ color: 0x4f7a2a }), metal: new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.6, metalness: 0.5 }), wood: new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.9 }), woodlight: new THREE.MeshStandardMaterial({ color: 0xd9b573, roughness: 0.9 }), spark: new THREE.MeshBasicMaterial({ color: 0xffb347 }), lime: new THREE.MeshBasicMaterial({ color: 0xb6ff4a }), fire: new THREE.MeshBasicMaterial({ color: 0xff5a1f }), gold: new THREE.MeshBasicMaterial({ color: 0xffd25a }) };
 function burst(pos, kind, n, power = 1) {
   for (let i = 0; i < n; i++) {
     if (particles.length > 600) break;
@@ -340,7 +357,7 @@ const G = window.__G = {
   level: 1, running: false, progress: 0, length: 0, timeScale: 1, shake: 0,
   soldiers: [], count: 0, squadX: 0, targetX: 0, fireMult: 1, dmgBonus: 0, weaponKey: 'rifle', weapon: WEAPONS.rifle,
   columns: [], gates: [], zombies: [], boss: null, hordeActive: false, hordeDone: false,
-  combo: 0, comboT: 0, coinsLevel: 0, kills: 0,
+  combo: 0, comboT: 0, coinsLevel: 0, kills: 0, rage: 0,
 };
 const squad = new THREE.Group(); scene.add(squad);
 const countTex = textTexture('0', '#ffffff', '#0b3a5c', 120);
@@ -349,7 +366,7 @@ countSprite.scale.setScalar(1.6); countSprite.position.y = 2.1; squad.add(countS
 let countPulse = 0;
 
 const el = id => document.getElementById(id);
-const ui = { level: el('level'), fill: el('barfill'), cnt: el('cnt'), rate: el('rate'), dmg: el('dmg'), boss: el('bossbar'), bossfill: el('bossfill'), flash: el('flash'), weapon: el('weapon'), coins: el('coins'), combo: el('combo'), wave: el('wave') };
+const ui = { level: el('level'), fill: el('barfill'), cnt: el('cnt'), rate: el('rate'), dmg: el('dmg'), boss: el('bossbar'), bossfill: el('bossfill'), flash: el('flash'), weapon: el('weapon'), coins: el('coins'), combo: el('combo'), wave: el('wave'), rage: el('rage') };
 
 function formationPos(i) { const r = 0.5 * Math.sqrt(i), a = i * 2.39996; return { x: Math.cos(a) * r, z: Math.sin(a) * r * 0.9 }; }
 function squadRadius() { return 0.5 * Math.sqrt(Math.max(1, G.count)); }
@@ -407,7 +424,7 @@ function makeGate(z, left, right) {
   const group = new THREE.Group(); group.position.set(0, 0, z);
   const halves = [];
   [[left, -1], [right, 1]].forEach(([spec, side]) => {
-    const good = spec.good; const col = spec.weapon ? 0x4fa8ff : good ? 0x39e08a : 0xff4d5a;
+    const good = spec.good; const col = spec.weapon ? 0x4fa8ff : spec.rage ? 0xb6ff4a : good ? 0x39e08a : 0xff4d5a;
     const cx = side * (ROAD_HALF / 2);
     const panel = new THREE.Mesh(GATE.geoPanel, new THREE.MeshStandardMaterial({ color: col, transparent: true, opacity: 0.38, emissive: col, emissiveIntensity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
     panel.position.set(cx, 1.5, -0.45); group.add(panel);
@@ -423,7 +440,7 @@ function makeGate(z, left, right) {
       const halo = new THREE.Sprite(haloMat); halo.scale.setScalar(2.6); halo.position.set(cx, 2.2, -0.2); group.add(halo);   // halo bleu : « il y a une arme ici »
       halves.push({ spec, panel, side, spin: pivot });
     } else {
-      const lbl = new THREE.Mesh(GATE.lbl, new THREE.MeshBasicMaterial({ map: textTexture(spec.label, '#ffffff', good ? '#0d5a33' : '#6b0e18', spec.label.length > 2 ? 110 : 150), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+      const lbl = new THREE.Mesh(GATE.lbl, new THREE.MeshBasicMaterial({ map: textTexture(spec.label, spec.rage ? '#eaffc2' : '#ffffff', spec.rage ? '#3d6b00' : good ? '#0d5a33' : '#6b0e18', spec.label.length > 2 ? 110 : 150), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
       lbl.position.set(cx, 1.75, 0.45); group.add(lbl);
       halves.push({ spec, panel, side });
     }
@@ -438,6 +455,7 @@ function gateSpec(kind) {
     case 'mul': return { good: true, label: 'x2', apply: () => setCount(G.count * 2) };
     case 'fire': return { good: true, label: 'TIR+', apply: () => { G.fireMult = Math.min(4, G.fireMult + 0.4); refreshHud(); } };
     case 'dmg': return { good: true, label: 'DMG+', apply: () => { G.dmgBonus += 1; refreshHud(); } };
+    case 'rage': return { good: true, rage: true, label: 'RAGE', apply: startRage };
     case 'sub': { const v = irand(2, 3 + L); return { good: false, label: '-' + v, apply: () => loseSoldiers(v) }; }
     case 'div': return { good: false, label: '÷2', apply: () => loseSoldiers(Math.ceil(G.count / 2)) };
     case 'shotgun': case 'mg': case 'rocket': return { good: true, weapon: kind, label: WEAPONS[kind].name.slice(0, 5), apply: () => setWeapon(kind) };
@@ -457,7 +475,7 @@ function buildLevel() {
   G.length = 230 + L * 40;
   G.progress = 0; G.hordeActive = false; G.hordeDone = false; G.combo = 0; G.coinsLevel = 0; G.kills = 0; G.timeScale = 1; G.shake = 0;
   let d = 32, sinceGate = 0, gatesMade = 0;
-  const goods = ['add', 'add', 'mul', 'fire', 'dmg', 'add'], bads = ['sub', 'sub', 'div'], weapons = ['shotgun', 'mg', 'rocket'];
+  const goods = ['add', 'add', 'mul', 'fire', 'dmg', 'add', 'rage', 'rage'], bads = ['sub', 'sub', 'div'], weapons = ['shotgun', 'mg', 'rocket'];
   const packs = 1 + Math.floor(L / 2);
   const packAt = []; for (let i = 0; i < packs; i++) packAt.push(rand(60, G.length - 70));
   while (d < G.length - 60) {
@@ -556,10 +574,10 @@ function updateSquad(dt, t) {
   squad.position.x = G.squadX;
   squad.rotation.z = (G.targetX - G.squadX) * -0.08;
   countPulse = Math.max(0, countPulse - dt * 3); countSprite.scale.setScalar(1.6 + countPulse * 0.9);
-  const interval = G.weapon.interval / G.fireMult;
+  const interval = G.weapon.interval / G.fireMult / (G.rage > 0 ? 2 : 1);
   for (let i = 0; i < G.soldiers.length; i++) {
     const s = G.soldiers[i], u = s.userData;
-    u.mixer.update(dt);
+    (G.rage > 0 ? u.green : u.swat).userData.mixer.update(dt);
     if (G.running) { u.fireT -= dt; if (u.fireT <= 0) { u.fireT = interval * rand(0.9, 1.1); fire({ x: G.squadX + s.position.x, z: s.position.z }); } }
   }
   // caméra : suit l'escouade, tremble sur les gros chocs
@@ -604,6 +622,7 @@ function showWave() { ui.wave.style.opacity = 1; setTimeout(() => ui.wave.style.
 
 function updateWorld(dt, t) {
   if (G.comboT > 0) { G.comboT -= dt; if (G.comboT <= 0) endCombo(); }
+  if (G.rage > 0) { G.rage -= dt; ui.rage.textContent = '⚡ RAGE x2 · ' + Math.ceil(G.rage) + ' s'; ui.rage.style.opacity = 1; if (G.rage <= 0) endRage(); }
   // arrivée sur le boss -> la route s'arrête
   const bossZ = G.boss ? G.boss.position.z + G.progress : -(G.length - G.progress);
   if (!G.hordeActive && bossZ > -30) { G.hordeActive = true; ui.boss.style.display = 'block'; ui.bossfill.style.width = '100%'; Audio.roar(); G.shake = 0.6; showWave(); }
@@ -693,7 +712,7 @@ function renderShop(prefix) {
 function startLevel() {
   buildLevel();
   G.fireMult = 1 + SAVE.up.fire * 0.1; G.dmgBonus = SAVE.up.dmg; G.weaponKey = 'rifle'; G.weapon = WEAPONS.rifle;
-  G.squadX = 0; G.targetX = 0; endCombo();
+  G.squadX = 0; G.targetX = 0; endCombo(); endRage();
   setCount(0, false); setCount(6 + Math.floor(G.level / 2) + SAVE.up.soldiers, false);
   G.running = true;
   el('start').style.display = el('over').style.display = el('win').style.display = 'none';

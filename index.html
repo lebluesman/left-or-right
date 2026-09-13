@@ -19,6 +19,7 @@
   #stats span { display:inline-block; min-width:22px; color:#ffe27a; }
   #combo { position:absolute; top:22%; left:50%; transform:translateX(-50%) scale(1); font-size:34px; font-weight:900; letter-spacing:2px; color:#ffe27a; opacity:0; transition:opacity .2s, transform .15s; text-shadow:0 3px 10px rgba(0,0,0,.5); }
   #combo.on { opacity:1; transform:translateX(-50%) scale(1.15); }
+  #rage { position:absolute; top:70px; left:50%; transform:translateX(-50%); font-size:22px; font-weight:800; color:#b6ff4a; opacity:0; transition:opacity .3s; }
   #wave { position:absolute; top:30%; left:50%; transform:translateX(-50%); font-size:26px; font-weight:800; color:#ff6b6b; opacity:0; transition:opacity .3s; }
   .shop { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin:14px 0 4px; pointer-events:auto; }
   .shop button { font-size:14px; padding:10px 14px; border-radius:10px; background:linear-gradient(180deg,#fff3c4,#ffd25a); color:#4a3200; box-shadow:0 4px 12px rgba(0,0,0,.3); line-height:1.35; }
@@ -50,6 +51,7 @@
   <div id="stats">👥 Soldats : <span id="cnt">0</span><br>🔫 <span id="weapon">FUSIL</span> · cadence <span id="rate">x1.0</span> · dégâts <span id="dmg">1</span><br>💰 <span id="coins">0</span></div>
   <div id="combo">COMBO x3</div>
   <div id="wave">VAGUE !</div>
+  <div id="rage">⚡ RAGE</div>
   <div id="hint">Souris / doigt : déplacer l'escouade<br>Portes vertes = bonus · rouges = malus</div>
 </div>
 <div class="flash" id="flash"></div>
@@ -83,7 +85,7 @@
 <script src="GLTFLoader.js"></script>
 <script src="RGBELoader.js"></script>
 <script src="SkeletonUtils.js"></script>
-<script src="assets.js?v=8"></script>
-<script src="game.js?v=8"></script>
+<script src="assets.js?v=9"></script>
+<script src="game.js?v=9"></script>
 </body>
 </html>
