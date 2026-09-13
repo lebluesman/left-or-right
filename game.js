@@ -322,6 +322,8 @@ const bulletGeo = new THREE.CylinderGeometry(0.05, 0.07, 0.5, 6); bulletGeo.rota
 const bulletMats = {}; for (const k in WEAPONS) bulletMats[k] = new THREE.MeshBasicMaterial({ color: WEAPONS[k].color });
 const flashTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const r = g.createRadialGradient(32, 32, 2, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,220,1)'); r.addColorStop(0.4, 'rgba(255,200,90,.6)'); r.addColorStop(1, 'rgba(255,150,40,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 const flashMat = new THREE.SpriteMaterial({ map: flashTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const r = g.createRadialGradient(64, 64, 8, 64, 64, 64); r.addColorStop(0, 'rgba(20,70,160,.85)'); r.addColorStop(0.7, 'rgba(20,70,160,.6)'); r.addColorStop(0.85, 'rgba(120,200,255,.9)'); r.addColorStop(1, 'rgba(120,200,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+const haloMat = new THREE.SpriteMaterial({ map: haloTex, depthWrite: false, transparent: true });
 const flashes = [];
 function fire(from) {
   const w = G.weapon;
@@ -418,9 +420,11 @@ function makeGate(z, left, right) {
       // l'arme en 3D, à plat, qui flotte et tourne lentement au-dessus de la barrière
       const w = models['w_' + spec.weapon].wrapper.clone();
       const box = new THREE.Box3().setFromObject(w), size = box.getSize(new THREE.Vector3());
-      w.scale.multiplyScalar(3.3 / Math.max(size.x, size.z));
+      w.scale.multiplyScalar(2.6 / Math.max(size.x, size.z));
+      if (size.z > size.x) w.rotation.y = Math.PI / 2;                      // canon le long de l'axe X
       const pivot = new THREE.Group(); pivot.add(w); w.position.y = -0.5;   // centre l'arme sur son pivot
-      pivot.position.set(cx, 2.2, 0.5); pivot.rotation.z = 0.35; group.add(pivot);
+      pivot.position.set(cx, 2.2, 0.5); pivot.rotation.x = -0.75; pivot.rotation.z = 0.3; group.add(pivot);   // présentée de profil face à la caméra
+      const halo = new THREE.Sprite(haloMat); halo.scale.setScalar(2.6); halo.position.set(cx, 2.2, -0.2); group.add(halo);   // halo bleu : « il y a une arme ici »
       halves.push({ spec, panel, side, spin: pivot });
     } else {
       const lbl = new THREE.Mesh(GATE.lbl, new THREE.MeshBasicMaterial({ map: textTexture(spec.label, '#ffffff', good ? '#0d5a33' : '#6b0e18', spec.label.length > 2 ? 110 : 150), transparent: true, depthWrite: false, side: THREE.DoubleSide }));
@@ -630,7 +634,7 @@ function updateWorld(dt, t) {
   for (const g of G.gates) {
     if (g.used) continue;
     const gz = g.group.position.z + G.progress;
-    if (gz > -80) for (const h of g.halves) if (h.spin) { h.spin.rotation.y = t * 1.4; h.spin.position.y = 2.2 + Math.sin(t * 2.5 + h.side) * 0.15; }
+    if (gz > -80) for (const h of g.halves) if (h.spin) { h.spin.rotation.y = Math.sin(t * 1.6) * 0.5; h.spin.position.y = 2.2 + Math.sin(t * 2.5 + h.side) * 0.15; }
     if (gz > -0.3) {
       g.used = true;
       const h = g.halves[G.squadX < 0 ? 0 : 1];
