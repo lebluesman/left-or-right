@@ -535,6 +535,7 @@ function buildLevel() {
         } else a = gateSpec(goods[irand(0, goods.length - 1)]);
         b = pair < 0.8 ? gateSpec(bads[irand(0, bads.length - 1)]) : gateSpec(goods[irand(0, goods.length - 1)]);
       }
+      for (let k = 0; k < 8 && b.label === a.label; k++) b = gateSpec(b.good ? goods[irand(0, goods.length - 1)] : bads[irand(0, bads.length - 1)]);   // jamais le même choix des deux côtés
       const goodLeft = Math.random() < 0.5;
       plan.push({ type: 'gate', d, a, b, goodLeft });
       if (Math.random() < 0.35 && !b.good) plan.push({ type: 'risk', d: d - 7, lane: goodLeft ? LANES[irand(0, 1)] : LANES[irand(2, 3)] });
