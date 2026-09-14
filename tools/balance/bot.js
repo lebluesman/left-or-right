@@ -2,7 +2,7 @@
 module.exports = (p) => `
 (() => {
   const G = window.__G, LANES = [-3.1, -1.05, 1.05, 3.1];
-  const better = it => { const a = it.halves[0].spec, b = it.halves[1].spec; if (a.good && !b.good) return -1; if (b.good && !a.good) return 1; return Math.random() < 0.5 ? -1 : 1; };
+  const better = it => { const a = it.halves[0].spec, b = it.halves[1].spec; if (a.good && !b.good) return -1; if (b.good && !a.good) return 1; if (!a.good && !b.good) return (a.severity <= b.severity) ? -1 : 1; return Math.random() < 0.5 ? -1 : 1; };
   window.__lane = undefined;
   window.__botTimer = setInterval(() => {
     if (!G.running) return;
