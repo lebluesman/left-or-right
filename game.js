@@ -7,6 +7,7 @@ const LANES = [-3.1, -1.05, 1.05, 3.1];
 const WORLD_SPEED = 8;          // vitesse de défilement au niveau 1
 const worldSpeed = () => Math.min(14, WORLD_SPEED + (G.level - 1) * 0.5);   // +0,5 par niveau, plafond 14
 const MAX_SOLDIERS = 60;
+const BOT = +(new URLSearchParams(location.search).get('bot') || 0);   // ?bot=N : N pas de simulation par image, sans rendu (tests d'équilibrage)
 const SHADOW_SOLDIERS = 18;     // seuls les premiers projettent une ombre
 const rand = (a, b) => a + Math.random() * (b - a);
 const irand = (a, b) => Math.floor(rand(a, b + 1));
@@ -72,6 +73,24 @@ const Audio = {
   roar() { this.tone(90, 0.8, 0.3, 'sawtooth', -50); this.noise(0.6, 250, 0.3); },
   hurt() { this.tone(200, 0.3, 0.2, 'sawtooth', -120); this.noise(0.2, 600, 0.2); },
   combo(n) { this.tone(600 + n * 40, 0.1, 0.08, 'triangle'); },
+};
+
+// ---------- Musique : 10 morceaux en boucle, mélangés, joués tant que la partie tourne ----------
+const Music = {
+  list: ['01-epic', '02-synthwave', '03-dnb', '04-military', '05-industrial', '06-chiptune', '07-bigbeat', '08-horror', '09-trap', '10-house'],
+  order: [], i: 0, el: null,
+  init() {
+    if (this.el) return;
+    this.order = this.list.slice().sort(() => Math.random() - 0.5);
+    this.el = document.createElement('audio'); this.el.volume = 0.45; this.el.preload = 'auto';
+    this.el.addEventListener('ended', () => this.next());
+    this.el.addEventListener('error', () => this.next());   // fichier manquant : on passe au suivant
+    this.load();
+  },
+  load() { this.el.src = 'assets/music/' + this.order[this.i % this.order.length] + '.mp3'; },
+  next() { this.i++; this.load(); this.play(); },
+  play() { if (!this.el || Audio.muted || BOT) return; this.el.play().catch(() => {}); },
+  pause() { if (this.el) this.el.pause(); },
 };
 
 // ---------- Rendu ----------
@@ -739,7 +758,6 @@ function updateWorld(dt, t) {
   }
 }
 
-const BOT = +(new URLSearchParams(location.search).get('bot') || 0);   // ?bot=N : N pas de simulation par image, sans rendu (tests d'équilibrage)
 let last = performance.now(), simT = 0;
 function step(raw, t) {
   const dt = raw * G.timeScale;
@@ -753,7 +771,7 @@ function loop(now) {
   step(raw, now / 1000);
   renderer.render(scene, camera);
 }
-window.__api = { startLevel: () => startLevel(), setLevel: l => { G.level = l; }, requiredRatio, simTime: () => simT };
+window.__api = { startLevel: () => startLevel(), setLevel: l => { G.level = l; }, requiredRatio, simTime: () => simT, music: Music };
 
 // ---------- Boutique / écrans ----------
 function renderShop(prefix) {
@@ -773,15 +791,16 @@ function startLevel() {
   G.squadX = 0; G.targetX = 0; endCombo(); endRage();
   setCount(0, false); setCount(6 + Math.floor(G.level / 2) + SAVE.up.soldiers, false);
   G.running = true;
+  Music.init(); Music.play();
   el('start').style.display = el('over').style.display = el('win').style.display = 'none';
 }
 function gameOver() {
-  if (!G.running) return; G.running = false; SAVE.write();
+  if (!G.running) return; G.running = false; SAVE.write(); Music.pause();
   el('overText').textContent = `Niveau ${G.level} — ${G.coinsLevel} pièces ramassées, ${G.kills} zombies. Un bloc tue autant de soldats que son chiffre : tire plus tôt, évite-le, ou dépense tes pièces ci-dessous.`;
   renderShop('Over'); el('over').style.display = 'flex';
 }
 function win() {
-  if (!G.running) return; G.running = false;
+  if (!G.running) return; G.running = false; Music.pause();
   const score = G.coinsLevel * 10 + G.count * 100 + G.kills * 5;
   const bonus = 30 + G.level * 20; SAVE.coins += bonus;
   const record = score > SAVE.score;
@@ -799,7 +818,7 @@ el('btnStart').onclick = () => { Audio.init(); G.level = SAVE.level; startLevel(
 el('btnRetry').onclick = () => { Audio.init(); startLevel(); };
 el('btnNext').onclick = () => { Audio.init(); G.level = SAVE.level; startLevel(); };
 el('btnReset').onclick = () => { SAVE.level = 1; SAVE.write(); showStart(); };
-el('mute').onclick = e => { Audio.muted = !Audio.muted; e.target.textContent = Audio.muted ? '🔇' : '🔊'; };
+el('mute').onclick = e => { Audio.muted = !Audio.muted; e.target.textContent = Audio.muted ? '🔇' : '🔊'; if (Audio.muted) Music.pause(); else if (G.running) Music.play(); };
 
 // ---------- Contrôles ----------
 const toX = cx => ((cx / innerWidth) - 0.5) * ROAD_HALF * 2.4;
