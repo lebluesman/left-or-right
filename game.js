@@ -579,8 +579,9 @@ function buildLevel() {
 }
 
 // ---------- Dégâts ----------
-function damageColumn(c, dmg, hitPos) {
-  const blk = c.blocks[0]; if (!blk) return;
+function damageColumn(c, dmg, hitPos, force) {
+  const blk = c.blocks[0]; if (!blk) return false;
+  if (!force && blk.mesh.position.y > blk.targetY + 0.35) return false;   // encore en l'air : la balle passe dessous
   blk.hp -= dmg;
   const cz = c.group.position.z + G.progress;
   if (blk.hp <= 0) {
@@ -591,6 +592,7 @@ function damageColumn(c, dmg, hitPos) {
     if (!c.blocks.length) c.dead = true;
     hitCombo(); addCoins(Math.ceil(blk.max / c.unit), new THREE.Vector3(c.x, 1.5, cz));
   } else { updateText(blk.tex, String(blk.hp)); burst(hitPos, blk.big ? 'woodlight' : 'wood', 2, 0.4); }
+  return true;
 }
 function damageZombie(k, dmg) {
   const z = G.zombies[k]; z.userData.hp -= dmg;
@@ -621,7 +623,7 @@ function explode(pos, dmg, area) {
   for (const c of G.columns) {
     if (c.dead || !c.blocks.length) continue;
     const cz = c.group.position.z + G.progress;
-    if (Math.abs(c.x - pos.x) < area + 0.9 && Math.abs(cz - pos.z) < area + 0.8) damageColumn(c, dmg, pos);
+    if (Math.abs(c.x - pos.x) < area + 0.9 && Math.abs(cz - pos.z) < area + 0.8) damageColumn(c, dmg, pos, true);
   }
   for (let k = G.zombies.length - 1; k >= 0; k--) {
     const z = G.zombies[k];
@@ -660,8 +662,8 @@ function updateBullets(dt) {
       if (c.dead || !c.blocks.length) continue;
       const cz = c.group.position.z + G.progress;
       if (Math.abs(b.position.x - c.x) < 1.0 && b.position.z < cz + 0.7 && b.position.z > cz - 0.9) {
-        if (u.area) explode(b.position.clone(), u.dmg, u.area); else damageColumn(c, u.dmg, new THREE.Vector3(b.position.x, 0.7, cz + 0.6));
-        hit = true; break;
+        if (u.area) { explode(b.position.clone(), u.dmg, u.area); hit = true; } else hit = damageColumn(c, u.dmg, new THREE.Vector3(b.position.x, 0.7, cz + 0.6));
+        if (hit) break;
       }
     }
     if (!hit) for (let k = G.zombies.length - 1; k >= 0; k--) {
@@ -705,7 +707,9 @@ function updateWorld(dt, t) {
 
   for (const c of G.columns) {
     if (c.dead) continue;
-    for (const o of c.blocks) o.mesh.position.y += (o.targetY - o.mesh.position.y) * Math.min(1, dt * 10);
+    for (const o of c.blocks) {   // chute avec gravité et petit rebond : le bloc du dessus doit retomber avant de prendre les balles
+      if (o.mesh.position.y > o.targetY + 0.001 || o.vy) { o.vy = (o.vy || 0) - 20 * dt; o.mesh.position.y += o.vy * dt; if (o.mesh.position.y <= o.targetY) { o.mesh.position.y = o.targetY; o.vy = o.vy < -3 ? -o.vy * 0.25 : 0; if (!o.vy) Audio.crate(); } }
+    }
     const cz = c.group.position.z + G.progress;
     if (cz > -0.4 && Math.abs(c.x - G.squadX) < 1.0 + 0.15 * squadRadius()) {   // seule la partie centrale de l'escouade encaisse, sinon une grosse escouade ne peut plus rien éviter
       const total = Math.ceil(c.blocks.reduce((s, o) => s + o.hp, 0) / c.unit);   // un bloc « normal » frais coûte ~4-6 soldats, un gros ~25
