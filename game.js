@@ -399,7 +399,7 @@ function refreshHud() {
 function setCount(n, fx = true) {
   n = clamp(Math.round(n), 0, MAX_SOLDIERS);
   const vis = Math.min(n, VISUAL_MAX);
-  while (G.soldiers.length < vis) { const i = G.soldiers.length; const s = makeSoldier(i); const p = formationPos(i); s.position.set(p.x, 0, p.z); squad.add(s); G.soldiers.push(s); if (fx) burst(new THREE.Vector3(G.squadX + p.x, 0.5, p.z), 'gold', 3, 0.5); }
+  while (G.soldiers.length < vis) { const i = G.soldiers.length; const s = makeSoldier(i); const p = formationPos(i); s.position.set(p.x, 0, p.z); s.userData.fx = p.x; s.userData.fz = p.z; squad.add(s); G.soldiers.push(s); if (fx) burst(new THREE.Vector3(G.squadX + p.x, 0.5, p.z), 'gold', 3, 0.5); }
   while (G.soldiers.length > vis) { const s = G.soldiers.pop(); squad.remove(s); if (fx) burst(new THREE.Vector3(G.squadX + s.position.x, 0.5, s.position.z), 'blood', 5, 0.7); }
   if (n !== G.count) countPulse = 1;
   G.count = n; updateText(countTex, String(n), '#ffffff', '#0b3a5c', 120);
@@ -652,8 +652,12 @@ function updateSquad(dt, t) {
   squad.rotation.z = (G.targetX - G.squadX) * -0.08;
   countPulse = Math.max(0, countPulse - dt * 3); countSprite.scale.setScalar(1.6 + countPulse * 0.9);
   const interval = G.weapon.interval / G.fireMult / (G.rage > 0 ? 2 : 1) / Math.max(1, G.count / VISUAL_MAX);
+  const edge = ROAD_HALF - 0.35;
   for (let i = 0; i < G.soldiers.length; i++) {
     const s = G.soldiers[i], u = s.userData;
+    // les soldats qui dépasseraient la route sont tassés contre le garde-corps et reculés un peu
+    const wx = clamp(G.squadX + u.fx, -edge, edge), over = Math.abs(G.squadX + u.fx - wx);
+    s.position.x = wx - G.squadX; s.position.z = u.fz + over * 0.6;
     (G.rage > 0 ? u.green : u.swat).userData.mixer.update(dt);
     if (G.running) { u.fireT -= dt; if (u.fireT <= 0) { u.fireT = interval * rand(0.9, 1.1); fire({ x: G.squadX + s.position.x, z: s.position.z }); } }
   }
