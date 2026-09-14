@@ -791,7 +791,7 @@ function startLevel() {
   G.squadX = 0; G.targetX = 0; endCombo(); endRage();
   setCount(0, false); setCount(6 + Math.floor(G.level / 2) + SAVE.up.soldiers, false);
   G.running = true;
-  Music.init(); Music.play();
+  Music.init(); if (Music.started) Music.next(); else { Music.started = true; Music.play(); }   // un morceau différent à chaque niveau
   el('start').style.display = el('over').style.display = el('win').style.display = 'none';
 }
 function gameOver() {
